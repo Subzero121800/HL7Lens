@@ -1,0 +1,11 @@
+HL7Lens build notes
+  Linux with mingw-w64:  apt install g++-mingw-w64-x86-64 g++-mingw-w64-i686 python3
+  make x64      -> build/x64/HL7Lens.dll + hl7_cli.exe
+  make x86      -> build/x86/HL7Lens.dll + hl7_cli.exe
+  make test     -> native hl7_cli + tests/test_hl7.py (core checks)
+  make data     -> regenerate src/dict_gen.cpp (tools/dictionary.json) and src/assets_gen.cpp
+                   (tools/HL7_v2.xml user language + tools/sample.hl7)
+  tests/test_hl7.py <cli> --oracle additionally compares against the original TypeScript engine
+  (tools/oracle.js; needs node and the compiled engine in ref/hl7core-js, not shipped).
+  Self-test inside Notepad++: start notepad++.exe with HL7LENS_SELFTEST=<report path>
+  (HL7LENS_SELFTEST_HOLD=1 keeps the window open).

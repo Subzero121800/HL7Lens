@@ -1,0 +1,208 @@
+<#
+.SYNOPSIS
+    Installs (or removes) the HL7Lens plugin for Notepad++ from its GitHub releases.
+
+.DESCRIPTION
+    Finds Notepad++, works out whether it is 64-bit or 32-bit, downloads the matching HL7Lens release,
+    checks its SHA-256 checksum and Authenticode signature, and copies the plugin into
+    <Notepad++>\plugins\HL7Lens\. Asks for administrator rights only for the copy, and only when the
+    plugins folder needs it (for example under C:\Program Files).
+
+.EXAMPLE
+    irm https://raw.githubusercontent.com/Subzero121800/HL7Lens/main/install.ps1 | iex
+
+.EXAMPLE
+    install.cmd                                            # from an unpacked release zip: installs the files beside it
+
+.EXAMPLE
+    .\install.ps1 -NppPath D:\Tools\npp-portable          # portable Notepad++
+    .\install.ps1 -Version 1.1.0                           # a specific release
+    .\install.ps1 -ZipPath .\HL7Lens_NotepadPlusPlus_v1.1.0.zip   # offline, from a downloaded zip
+    .\install.ps1 -Uninstall
+
+.NOTES
+    HL7Lens - Copyright (c) 2026 Joseph C McGinty Jr. - GNU GPL v3 - https://github.com/Subzero121800/HL7Lens
+#>
+[CmdletBinding()]
+param(
+    [string]$Version = 'latest',
+    [string]$NppPath,
+    [string]$ZipPath,
+    [switch]$Download,
+    [switch]$Uninstall,
+    [switch]$Force,
+    [switch]$SkipSignatureCheck,
+    [string]$Repo = 'Subzero121800/HL7Lens',
+    [string]$Token = $env:GITHUB_TOKEN
+)
+
+$ErrorActionPreference = 'Stop'
+$PluginName = 'HL7Lens'
+# SHA-1 thumbprint of the author's code-signing certificate (CN=Joseph C McGinty Jr.), as Windows shows it
+$SignerThumbprint = '52C94A9DFEE33D25429354D2A7837EC227B665F4'
+$OnWindows = ($PSVersionTable.PSEdition -eq 'Desktop') -or $IsWindows
+
+function Say([string]$Text, [string]$Color = 'Gray') { Write-Host $Text -ForegroundColor $Color }
+function Fail([string]$Text) { Write-Host ''; Write-Host "HL7Lens install stopped: $Text" -ForegroundColor Red; throw [System.OperationCanceledException]::new($Text) }
+
+function Find-NotepadPlusPlus {
+    if ($NppPath) {
+        $p = $NppPath
+        if ((Test-Path $p -PathType Leaf) -and ($p -like '*.exe')) { $p = Split-Path $p -Parent }
+        if (-not (Test-Path (Join-Path $p 'notepad++.exe'))) { Fail "notepad++.exe was not found in '$NppPath'." }
+        return (Resolve-Path $p).Path
+    }
+    $candidates = @()
+    if ($OnWindows) {
+        foreach ($key in 'HKLM:\SOFTWARE\Notepad++', 'HKLM:\SOFTWARE\WOW6432Node\Notepad++', 'HKCU:\SOFTWARE\Notepad++') {
+            try { $v = (Get-ItemProperty -Path $key -ErrorAction Stop).'(default)'; if ($v) { $candidates += $v } } catch { }
+        }
+    }
+    foreach ($base in $env:ProgramFiles, ${env:ProgramFiles(x86)}, $env:LOCALAPPDATA) { if ($base) { $candidates += (Join-Path $base 'Notepad++') } }
+    foreach ($c in $candidates) { if ($c -and (Test-Path (Join-Path $c 'notepad++.exe'))) { return $c } }
+    Fail "Notepad++ was not found. For a portable copy, run again with -NppPath <folder that holds notepad++.exe>."
+}
+
+function Get-ExeArchitecture([string]$Exe) {
+    $fs = [System.IO.File]::OpenRead($Exe)
+    try {
+        $br = New-Object System.IO.BinaryReader($fs)
+        $fs.Position = 0x3C; $pe = $br.ReadInt32(); $fs.Position = $pe + 4; $machine = $br.ReadUInt16()
+    } finally { $fs.Dispose() }
+    switch ($machine) { 0x8664 { 'x64' } 0x014C { 'x86' } 0xAA64 { 'arm64' } default { 'unknown' } }
+}
+
+function Invoke-Download([string]$Url, [string]$OutFile, [bool]$Api) {
+    $headers = @{ 'User-Agent' = 'HL7Lens-installer' }
+    if ($Api) { $headers['Accept'] = 'application/vnd.github+json' } else { $headers['Accept'] = 'application/octet-stream' }
+    if ($Token) { $headers['Authorization'] = "Bearer $Token" }
+    if ($OutFile) { Invoke-WebRequest -Uri $Url -Headers $headers -OutFile $OutFile -UseBasicParsing | Out-Null }
+    else { Invoke-RestMethod -Uri $Url -Headers $headers }
+}
+
+function Get-ReleaseZip([string]$WorkDir) {
+    if ($ZipPath) { if (-not (Test-Path $ZipPath)) { Fail "'$ZipPath' does not exist." }; return (Resolve-Path $ZipPath).Path }
+    try { [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12 } catch { }
+    $api = "https://api.github.com/repos/$Repo/releases/" + $(if ($Version -eq 'latest') { 'latest' } else { 'tags/v' + $Version.TrimStart('v') })
+    Say "Looking up release $Version of $Repo ..."
+    try { $rel = Invoke-Download $api $null $true }
+    catch {
+        if (Get-Command gh -ErrorAction SilentlyContinue) {
+            Say 'GitHub API not reachable without sign-in; trying the GitHub CLI (gh) ...'
+            $tag = if ($Version -eq 'latest') { @() } else { @('v' + $Version.TrimStart('v')) }
+            & gh release download @tag --repo $Repo --pattern 'HL7Lens_NotepadPlusPlus_v*.zip*' --dir $WorkDir --clobber
+            if ($LASTEXITCODE -ne 0) { Fail 'gh release download failed. Run "gh auth login" first.' }
+            $zip = Get-ChildItem $WorkDir -Filter 'HL7Lens_NotepadPlusPlus_v*.zip' | Select-Object -First 1
+            if (-not $zip) { Fail 'The release has no HL7Lens zip.' }
+            Test-Checksum $zip.FullName (Join-Path $WorkDir ($zip.Name + '.sha256'))
+            return $zip.FullName
+        }
+        Fail "Could not read the release from GitHub ($($_.Exception.Message)). If the repository is private, pass -Token <token> or install the GitHub CLI and sign in."
+    }
+    $asset = $rel.assets | Where-Object { $_.name -like 'HL7Lens_NotepadPlusPlus_v*.zip' } | Select-Object -First 1
+    if (-not $asset) { Fail "Release $($rel.tag_name) has no HL7Lens zip attached." }
+    $zipFile = Join-Path $WorkDir $asset.name
+    Say "Downloading $($asset.name) ($([math]::Round($asset.size / 1MB, 1)) MB) ..."
+    $dl = if ($Token) { $asset.url } else { $asset.browser_download_url }
+    Invoke-Download $dl $zipFile $false
+    $sum = $rel.assets | Where-Object { $_.name -eq ($asset.name + '.sha256') } | Select-Object -First 1
+    if ($sum) { $sumFile = Join-Path $WorkDir $sum.name; Invoke-Download $(if ($Token) { $sum.url } else { $sum.browser_download_url }) $sumFile $false; Test-Checksum $zipFile $sumFile }
+    else { Say 'No checksum file in this release; relying on the signature check.' 'Yellow' }
+    return $zipFile
+}
+
+function Test-Checksum([string]$File, [string]$SumFile) {
+    if (-not (Test-Path $SumFile)) { return }
+    $want = ((Get-Content $SumFile -Raw).Trim() -split '\s+')[0].ToLower()
+    $have = (Get-FileHash $File -Algorithm SHA256).Hash.ToLower()
+    if ($want -ne $have) { Fail "Checksum mismatch for $(Split-Path $File -Leaf): expected $want, got $have." }
+    Say 'SHA-256 checksum OK.' 'Green'
+}
+
+function Test-Signature([string]$Dll) {
+    if ($SkipSignatureCheck) { Say 'Signature check skipped (-SkipSignatureCheck).' 'Yellow'; return }
+    if (-not (Get-Command Get-AuthenticodeSignature -ErrorAction SilentlyContinue)) { Say 'Signature check not available on this system; skipped.' 'Yellow'; return }
+    $sig = Get-AuthenticodeSignature -FilePath $Dll
+    if (-not $sig.SignerCertificate) { Fail "$(Split-Path $Dll -Leaf) is not signed. Refusing to install (use -SkipSignatureCheck to override)." }
+    if ($sig.SignerCertificate.Thumbprint -ne $SignerThumbprint) { Fail "$(Split-Path $Dll -Leaf) is signed by '$($sig.SignerCertificate.Subject)', not by the HL7Lens author. Refusing to install." }
+    Say "Signed by $($sig.SignerCertificate.Subject) (thumbprint $SignerThumbprint)." 'Green'
+    if ($sig.Status -ne 'Valid') { Say "Windows reports the signature as '$($sig.Status)': the author's certificate is self-issued and not in this PC's trusted store. See README > Signature to trust it (optional)." 'DarkGray' }
+}
+
+function Test-Writable([string]$Dir) {
+    try { if (-not (Test-Path $Dir)) { New-Item -ItemType Directory -Path $Dir -ErrorAction Stop | Out-Null }; $t = Join-Path $Dir ('.hl7lens-' + [guid]::NewGuid().ToString('N')); [IO.File]::WriteAllText($t, ''); Remove-Item $t -Force; return $true } catch { return $false }
+}
+
+function Invoke-Elevated([string]$Command) {
+    if (-not $OnWindows) { Fail 'The plugins folder is not writable.' }
+    Say 'The plugins folder needs administrator rights; Windows will ask for permission ...' 'Yellow'
+    $exe = (Get-Process -Id $PID).Path
+    $p = Start-Process -FilePath $exe -Verb RunAs -Wait -PassThru -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', $Command)
+    if ($p.ExitCode -ne 0) { Fail 'The elevated copy did not complete (cancelled, or the files are in use).' }
+}
+
+function Stop-NotepadPlusPlusIfRunning([string]$Dir) {
+    $running = Get-Process -Name 'notepad++' -ErrorAction SilentlyContinue | Where-Object { try { $_.Path -and ((Split-Path $_.Path -Parent) -eq $Dir) } catch { $true } }
+    if (-not $running) { return }
+    if ($Force) { Say 'Closing Notepad++ (-Force) ...' 'Yellow'; $running | Stop-Process -Force; Start-Sleep -Milliseconds 800; return }
+    Fail 'Notepad++ is running. Close it (save your work first) and run this again, or add -Force to close it.'
+}
+
+# ------------------------------------------------------------------------------------------------
+function Install-HL7Lens {
+    Say ''
+    Say 'HL7Lens for Notepad++  -  installer' 'Cyan'
+    $npp = Find-NotepadPlusPlus
+    $arch = Get-ExeArchitecture (Join-Path $npp 'notepad++.exe')
+    $target = Join-Path (Join-Path $npp 'plugins') $PluginName
+    Say "Notepad++: $npp ($arch)"
+    if ($arch -eq 'arm64') { Fail 'This is ARM64 Notepad++. HL7Lens ships x64 and x86 builds only; install the x64 Notepad++ to use it.' }
+    if ($arch -eq 'unknown') { Fail 'Could not tell whether notepad++.exe is 64-bit or 32-bit.' }
+    Stop-NotepadPlusPlusIfRunning $npp
+
+    if ($Uninstall) {
+        if (-not (Test-Path $target)) { Say 'HL7Lens is not installed in this Notepad++.' 'Yellow'; return }
+        if (Test-Writable (Split-Path $target -Parent)) { Remove-Item $target -Recurse -Force }
+        else { Invoke-Elevated "Remove-Item -LiteralPath '$target' -Recurse -Force" }
+        Say "Removed $target. Your settings stay in plugins\Config\HL7Lens (delete that folder too for a clean removal)." 'Green'
+        return
+    }
+
+    $work = Join-Path ([IO.Path]::GetTempPath()) ('hl7lens-' + [guid]::NewGuid().ToString('N'))
+    New-Item -ItemType Directory -Path $work | Out-Null
+    try {
+        # run from an unpacked release (install.cmd / install.ps1 next to x64\ and x86\): use those files, no download
+        $here = if ($PSScriptRoot) { $PSScriptRoot } else { $null }
+        $local = if ($here -and -not $ZipPath -and -not $Download -and $Version -eq 'latest') { Join-Path (Join-Path $here $arch) $PluginName } else { $null }
+        if ($local -and (Test-Path (Join-Path $local "$PluginName.dll"))) {
+            Say "Installing from this folder: $here"
+            $src = $local
+        } else {
+            $zip = Get-ReleaseZip $work
+            $unz = Join-Path $work 'x'
+            Expand-Archive -LiteralPath $zip -DestinationPath $unz -Force
+            $src = Join-Path (Join-Path $unz $arch) $PluginName
+        }
+        $dll = Join-Path $src "$PluginName.dll"
+        if (-not (Test-Path $dll)) { Fail "The zip has no $arch\$PluginName\$PluginName.dll." }
+        Test-Signature $dll
+        if ($OnWindows) { Get-ChildItem $src -Recurse -File | Unblock-File }
+        $plugins = Split-Path $target -Parent
+        if (Test-Writable $plugins) {
+            if (Test-Path $target) { Remove-Item $target -Recurse -Force }
+            Copy-Item $src $target -Recurse -Force
+        } else {
+            Invoke-Elevated "if (Test-Path -LiteralPath '$target') { Remove-Item -LiteralPath '$target' -Recurse -Force }; Copy-Item -LiteralPath '$src' -Destination '$target' -Recurse -Force"
+        }
+        if (-not (Test-Path (Join-Path $target "$PluginName.dll"))) { Fail 'The plugin was not copied.' }
+        $ver = (Get-Item (Join-Path $target "$PluginName.dll")).VersionInfo.ProductVersion
+        Say ''
+        Say ("HL7Lens " + $(if ($ver) { "$ver " } else { '' }) + "installed to $target") 'Green'
+        Say 'Start Notepad++, then Plugins > HL7Lens > HL7Lens panel (Ctrl+Alt+H).'
+    } finally {
+        Remove-Item $work -Recurse -Force -ErrorAction SilentlyContinue
+    }
+}
+
+try { Install-HL7Lens }
+catch [System.OperationCanceledException] { $global:LASTEXITCODE = 1 }   # message already shown; no stack trace, and never 'exit' (would close a shell running 'irm | iex')

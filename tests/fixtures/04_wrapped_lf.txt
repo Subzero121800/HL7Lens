@@ -1,0 +1,7 @@
+MSH|^~\&|A|B|C|D|20260101||ORU^R01|Z|P|2.5.1
+PID|1||42||DOE^JOHN
+OBX|1|TX|X^Note||A very long note that was
+wrapped by the mail client onto a second line
+OBX|2|NM|Y||abc|||
+not a segment at all
+OBX|3|ST|Q||""

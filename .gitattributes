@@ -1,0 +1,7 @@
+* text=auto
+*.ps1 text eol=crlf
+*.rc text eol=crlf
+*.hl7 -text
+*.png binary
+*.cer binary
+*.cmd text eol=crlf

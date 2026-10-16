@@ -1,0 +1,27 @@
+name: build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Toolchain
+        run: sudo apt-get update && sudo apt-get install -y g++-mingw-w64-x86-64 g++-mingw-w64-i686
+      - name: Test the core
+        run: make test
+      - name: Build x64 and x86
+        run: make x64 x86
+      - name: Upload (unsigned) build
+        uses: actions/upload-artifact@v4
+        with:
+          name: HL7Lens-unsigned
+          path: |
+            build/x64/HL7Lens.dll
+            build/x86/HL7Lens.dll
+            build/x64/hl7_cli.exe
+            build/x86/hl7_cli.exe

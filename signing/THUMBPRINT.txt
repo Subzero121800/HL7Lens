@@ -1,0 +1,5 @@
+  subject=CN=Joseph C McGinty Jr.
+  notBefore=Oct 14 18:34:20 2026 GMT
+  notAfter=Oct 11 18:34:20 2036 GMT
+  sha256 Fingerprint=C3:ED:17:2F:44:64:50:D6:CD:F5:8B:72:57:48:3D:58:A7:64:1B:73:42:3D:57:8B:EF:8C:0F:E5:4C:92:45:5D
+Public certificate only (no private key). Install into Trusted Root + Trusted Publishers to have Windows show the signature as trusted; see README SIGNATURE section.

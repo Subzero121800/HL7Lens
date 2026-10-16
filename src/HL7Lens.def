@@ -1,0 +1,8 @@
+LIBRARY HL7Lens
+EXPORTS
+    getName
+    setInfo
+    getFuncsArray
+    beNotified
+    messageProc
+    isUnicode

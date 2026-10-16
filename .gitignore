@@ -1,0 +1,10 @@
+build/
+*.o
+*.res
+*.zip
+*.sha256
+*.md5
+__pycache__/
+ref/
+.DS_Store
+Thumbs.db
