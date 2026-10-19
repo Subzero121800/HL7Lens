@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+- Installer: folder names containing an apostrophe no longer break the elevated copy, and the installed DLL's
+  signature is checked again after the copy.
+
 ## 1.1.0 - 2026-10-16
 
 ### Added

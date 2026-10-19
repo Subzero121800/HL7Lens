@@ -133,6 +133,8 @@ function Test-Writable([string]$Dir) {
     try { if (-not (Test-Path $Dir)) { New-Item -ItemType Directory -Path $Dir -ErrorAction Stop | Out-Null }; $t = Join-Path $Dir ('.hl7lens-' + [guid]::NewGuid().ToString('N')); [IO.File]::WriteAllText($t, ''); Remove-Item $t -Force; return $true } catch { return $false }
 }
 
+function Quote([string]$Path) { "'" + $Path.Replace("'", "''") + "'" }   # single-quoted PowerShell literal
+
 function Invoke-Elevated([string]$Command) {
     if (-not $OnWindows) { Fail 'The plugins folder is not writable.' }
     Say 'The plugins folder needs administrator rights; Windows will ask for permission ...' 'Yellow'
@@ -163,7 +165,7 @@ function Install-HL7Lens {
     if ($Uninstall) {
         if (-not (Test-Path $target)) { Say 'HL7Lens is not installed in this Notepad++.' 'Yellow'; return }
         if (Test-Writable (Split-Path $target -Parent)) { Remove-Item $target -Recurse -Force }
-        else { Invoke-Elevated "Remove-Item -LiteralPath '$target' -Recurse -Force" }
+        else { Invoke-Elevated "Remove-Item -LiteralPath $(Quote $target) -Recurse -Force" }
         Say "Removed $target. Your settings stay in plugins\Config\HL7Lens (delete that folder too for a clean removal)." 'Green'
         return
     }
@@ -192,9 +194,10 @@ function Install-HL7Lens {
             if (Test-Path $target) { Remove-Item $target -Recurse -Force }
             Copy-Item $src $target -Recurse -Force
         } else {
-            Invoke-Elevated "if (Test-Path -LiteralPath '$target') { Remove-Item -LiteralPath '$target' -Recurse -Force }; Copy-Item -LiteralPath '$src' -Destination '$target' -Recurse -Force"
+            Invoke-Elevated "if (Test-Path -LiteralPath $(Quote $target)) { Remove-Item -LiteralPath $(Quote $target) -Recurse -Force }; Copy-Item -LiteralPath $(Quote $src) -Destination $(Quote $target) -Recurse -Force"
         }
         if (-not (Test-Path (Join-Path $target "$PluginName.dll"))) { Fail 'The plugin was not copied.' }
+        Test-Signature (Join-Path $target "$PluginName.dll")
         $ver = (Get-Item (Join-Path $target "$PluginName.dll")).VersionInfo.ProductVersion
         Say ''
         Say ("HL7Lens " + $(if ($ver) { "$ver " } else { '' }) + "installed to $target") 'Green'

@@ -3,6 +3,11 @@
 HL7Lens runs entirely offline: it reads the text open in Notepad++, sends nothing over any network and
 stores no message content.
 
+## Supported versions
+
+Security fixes go into the latest release. Update with the one-command installer or the newest zip from
+[Releases](https://github.com/Subzero121800/HL7Lens/releases).
+
 ## Reporting a problem
 
 Please report security issues privately through GitHub's **Report a vulnerability** (Security tab) rather

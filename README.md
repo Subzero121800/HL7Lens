@@ -32,6 +32,7 @@ its data type, its value and what that value means.
 - [Build from source](#build-from-source)
 - [Signature](#signature)
 - [Privacy](#privacy)
+- [Questions and feedback](#questions-and-feedback)
 - [Support development](#support-development)
 - [License](#license)
 
@@ -240,6 +241,12 @@ reports it as untrusted until you choose to trust it. The public certificate is 
 HL7Lens works entirely offline. It reads only the text open in the editor, sends nothing over any network
 and stores no message content. De-identification is a best-effort aid: always review a copy before you
 share it. **Never attach real patient data to an issue.**
+
+## Questions and feedback
+
+- **Questions and ideas:** [Discussions](https://github.com/Subzero121800/HL7Lens/discussions)
+- **Bugs:** [Issues](https://github.com/Subzero121800/HL7Lens/issues) (attach a synthetic message that shows the problem)
+- **Security problems:** report privately, see [SECURITY.md](SECURITY.md)
 
 ## Support development
 
