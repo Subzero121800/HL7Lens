@@ -44,6 +44,38 @@ into something you can read without counting separators, and it never sends a by
 
 ## Install
 
+### Easiest: the Run box (no typing commands)
+
+1. Close Notepad++.
+2. Press **Windows key + R** to open the Run box.
+3. Paste this line and press **Enter**:
+
+```text
+powershell -NoExit -c "irm https://raw.githubusercontent.com/Subzero121800/HL7Lens/main/install.ps1|iex"
+```
+
+A blue window opens, installs HL7Lens and says where it went. Close it, start Notepad++ and press **Ctrl+Alt+H**.
+If Windows asks *"Do you want to allow this app to make changes?"*, that is the copy into Notepad++'s folder: choose **Yes**.
+
+### Work computers without admin rights (State, Federal, hospital PCs)
+
+On most managed PCs Notepad++ is installed under `C:\Program Files`, and Windows only lets an administrator add
+files there. That is a Windows rule, not something HL7Lens can work around, and Notepad++ only loads plugins from
+its own `plugins` folder.
+
+Run the same line above anyway. If you have no admin rights (or you choose **No** at the prompt), the installer still
+downloads and checks HL7Lens and leaves a folder in your **Downloads** called **`HL7Lens-for-IT`** with:
+
+- the ready-to-copy `HL7Lens` plugin folder, and
+- `README-for-IT.txt`: exactly where it goes, the file's SHA-256, the signer, and what the plugin does (offline,
+  no network connections, no telemetry).
+
+Attach that note to an IT ticket. Copying one folder is a two-minute job for IT, and the note gives them what a
+software review usually asks for. IT can also deploy it to many PCs silently (as administrator or SYSTEM):
+`powershell -NoProfile -ExecutionPolicy Bypass -File install.ps1 -ZipPath <release zip>`.
+
+If your agency blocks PowerShell entirely, use **Manual** below and send IT the `x64\HL7Lens` folder from the zip.
+
 ### One command (PowerShell)
 
 Close Notepad++, open PowerShell and run:

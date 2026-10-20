@@ -6,10 +6,15 @@
     Finds Notepad++, works out whether it is 64-bit or 32-bit, downloads the matching HL7Lens release,
     checks its SHA-256 checksum and Authenticode signature, and copies the plugin into
     <Notepad++>\plugins\HL7Lens\. Asks for administrator rights only for the copy, and only when the
-    plugins folder needs it (for example under C:\Program Files).
+    plugins folder needs it (for example under C:\Program Files). Without admin rights it saves the
+    checked plugin and a note for IT in Downloads\HL7Lens-for-IT instead.
 
 .EXAMPLE
     irm https://raw.githubusercontent.com/Subzero121800/HL7Lens/main/install.ps1 | iex
+
+.EXAMPLE
+    powershell -NoExit -c "irm https://raw.githubusercontent.com/Subzero121800/HL7Lens/main/install.ps1|iex"
+    (paste into the Windows Run box, Win+R)
 
 .EXAMPLE
     install.cmd                                            # from an unpacked release zip: installs the files beside it
@@ -136,11 +141,51 @@ function Test-Writable([string]$Dir) {
 function Quote([string]$Path) { "'" + $Path.Replace("'", "''") + "'" }   # single-quoted PowerShell literal
 
 function Invoke-Elevated([string]$Command) {
-    if (-not $OnWindows) { Fail 'The plugins folder is not writable.' }
-    Say 'The plugins folder needs administrator rights; Windows will ask for permission ...' 'Yellow'
+    # Returns $true when the elevated copy finished, $false when there are no admin rights or the prompt was cancelled.
+    if (-not $OnWindows) { return $false }
+    Say 'The Notepad++ plugins folder needs administrator rights; Windows will ask for permission ...' 'Yellow'
     $exe = (Get-Process -Id $PID).Path
-    $p = Start-Process -FilePath $exe -Verb RunAs -Wait -PassThru -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', $Command)
-    if ($p.ExitCode -ne 0) { Fail 'The elevated copy did not complete (cancelled, or the files are in use).' }
+    try { $p = Start-Process -FilePath $exe -Verb RunAs -Wait -PassThru -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', $Command) }
+    catch { return $false }
+    return ($p.ExitCode -eq 0)
+}
+
+function Save-ForIT([string]$Src, [string]$Target, [string]$Arch) {
+    # No admin rights (typical on State and Federal PCs): leave the checked plugin folder and a note for IT.
+    $downloads = try { (New-Object -ComObject Shell.Application).NameSpace('shell:Downloads').Self.Path } catch { $null }
+    if (-not $downloads) { $downloads = Join-Path ([Environment]::GetFolderPath('UserProfile')) 'Downloads' }
+    $root = Join-Path $downloads 'HL7Lens-for-IT'
+    if (Test-Path $root) { Remove-Item $root -Recurse -Force }
+    New-Item -ItemType Directory -Path $root | Out-Null
+    Copy-Item $Src (Join-Path $root $PluginName) -Recurse -Force
+    $dll = Join-Path (Join-Path $root $PluginName) "$PluginName.dll"
+    $hash = (Get-FileHash $dll -Algorithm SHA256).Hash
+    $ver = (Get-Item $dll).VersionInfo.ProductVersion
+    @(
+        'HL7Lens plugin for Notepad++ - request for IT'
+        ''
+        'Please copy the HL7Lens folder that sits next to this note into the Notepad++ plugins folder:'
+        ''
+        "    $(Split-Path $Target -Parent)"
+        ''
+        "The result should be $(Join-Path $Target "$PluginName.dll"). Restart Notepad++ afterwards."
+        ''
+        "Version:      $ver ($Arch)"
+        "SHA-256:      $hash ($PluginName.dll)"
+        "Signed by:    CN=Joseph C McGinty Jr. (thumbprint $SignerThumbprint)"
+        "Source:       https://github.com/$Repo (GPL-3.0, free and open source)"
+        'Behavior:     runs offline inside Notepad++; makes no network connections, no telemetry, stores no message content.'
+        '              (Its "Support development" menu item and About box only open a web page in the browser when clicked.)'
+        ''
+        'Silent install for many PCs (run as administrator or SYSTEM, Notepad++ closed):'
+        "    powershell -NoProfile -ExecutionPolicy Bypass -File install.ps1 -ZipPath <path to HL7Lens_NotepadPlusPlus zip>"
+    ) | Set-Content -Path (Join-Path $root 'README-for-IT.txt') -Encoding UTF8
+    Say ''
+    Say 'No administrator rights on this PC, so HL7Lens could not be copied into Notepad++.' 'Yellow'
+    Say "The checked plugin and a note for IT are in: $root" 'Green'
+    Say 'Send that folder (or open a ticket with README-for-IT.txt) and ask IT to copy it into:'
+    Say "    $(Split-Path $Target -Parent)"
+    try { Start-Process explorer.exe $root } catch { }
 }
 
 function Stop-NotepadPlusPlusIfRunning([string]$Dir) {
@@ -165,7 +210,7 @@ function Install-HL7Lens {
     if ($Uninstall) {
         if (-not (Test-Path $target)) { Say 'HL7Lens is not installed in this Notepad++.' 'Yellow'; return }
         if (Test-Writable (Split-Path $target -Parent)) { Remove-Item $target -Recurse -Force }
-        else { Invoke-Elevated "Remove-Item -LiteralPath $(Quote $target) -Recurse -Force" }
+        elseif (-not (Invoke-Elevated "Remove-Item -LiteralPath $(Quote $target) -Recurse -Force")) { Fail "Removing HL7Lens needs administrator rights on this PC. Ask IT to delete the folder $target" }
         Say "Removed $target. Your settings stay in plugins\Config\HL7Lens (delete that folder too for a clean removal)." 'Green'
         return
     }
@@ -193,8 +238,9 @@ function Install-HL7Lens {
         if (Test-Writable $plugins) {
             if (Test-Path $target) { Remove-Item $target -Recurse -Force }
             Copy-Item $src $target -Recurse -Force
-        } else {
-            Invoke-Elevated "if (Test-Path -LiteralPath $(Quote $target)) { Remove-Item -LiteralPath $(Quote $target) -Recurse -Force }; Copy-Item -LiteralPath $(Quote $src) -Destination $(Quote $target) -Recurse -Force"
+        } elseif (-not (Invoke-Elevated "if (Test-Path -LiteralPath $(Quote $target)) { Remove-Item -LiteralPath $(Quote $target) -Recurse -Force }; Copy-Item -LiteralPath $(Quote $src) -Destination $(Quote $target) -Recurse -Force")) {
+            Save-ForIT $src $target $arch
+            return
         }
         if (-not (Test-Path (Join-Path $target "$PluginName.dll"))) { Fail 'The plugin was not copied.' }
         Test-Signature (Join-Path $target "$PluginName.dll")

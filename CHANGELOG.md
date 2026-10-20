@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### Added
+- Installer: on PCs without admin rights (or when the Windows prompt is declined) it now saves the checked plugin
+  and a `README-for-IT.txt` request note to `Downloads\HL7Lens-for-IT` instead of stopping with an error.
+- README: install from the Windows Run box (Win+R), and a section for managed State, Federal and hospital PCs.
+
 ### Fixed
 - Installer: folder names containing an apostrophe no longer break the elevated copy, and the installed DLL's
   signature is checked again after the copy.
