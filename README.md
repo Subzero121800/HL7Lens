@@ -46,32 +46,33 @@ into something you can read without counting separators, and it never sends a by
 
 ### Easiest: the Run box (no typing commands)
 
-1. Close Notepad++.
-2. Press **Windows key + R** to open the Run box.
-3. Paste this line and press **Enter**:
+1. Press **Windows key + R** to open the Run box.
+2. Paste this line and press **Enter**:
 
 ```text
-powershell -NoExit -c "irm https://raw.githubusercontent.com/Subzero121800/HL7Lens/main/install.ps1|iex"
+powershell -c "irm https://raw.githubusercontent.com/Subzero121800/HL7Lens/main/install.ps1|iex"
 ```
 
-A blue window opens, installs HL7Lens and says where it went. Close it, start Notepad++ and press **Ctrl+Alt+H**.
-If Windows asks *"Do you want to allow this app to make changes?"*, that is the copy into Notepad++'s folder: choose **Yes**.
+A window opens for a few seconds and closes by itself. A pop-up tells you what happened, and Notepad++ opens with
+a short getting-started guide and a sample message: press **Ctrl+Alt+H** there. If Notepad++ is open, the installer
+offers to close it first (it asks about any unsaved work). It never asks for administrator rights.
 
 ### Work computers without admin rights (State, Federal, hospital PCs)
 
 On most managed PCs Notepad++ is installed under `C:\Program Files`, and Windows only lets an administrator add
-files there. That is a Windows rule, not something HL7Lens can work around, and Notepad++ only loads plugins from
-its own `plugins` folder.
+files there. That is a Windows rule, and Notepad++ only loads plugins from its own `plugins` folder.
 
-Run the same line above anyway. If you have no admin rights (or you choose **No** at the prompt), the installer still
-downloads and checks HL7Lens and leaves a folder in your **Downloads** called **`HL7Lens-for-IT`** with:
+Use the same Run box line. When the plugins folder is protected, the installer changes nothing in Notepad++ and does
+not ask for admin rights. It downloads and checks HL7Lens and saves it in your **Downloads** folder as
+**`HL7Lens-Plugin`**, then opens that folder and the instructions:
 
-- the ready-to-copy `HL7Lens` plugin folder, and
-- `README-for-IT.txt`: exactly where it goes, the file's SHA-256, the signer, and what the plugin does (offline,
-  no network connections, no telemetry).
+- `HL7Lens`: the ready-to-copy plugin folder
+- `HOW-TO-INSTALL.txt`: where the folder goes, and for IT the file's SHA-256, the signer and what the plugin does
+  (offline, no network connections, no telemetry)
 
-Attach that note to an IT ticket. Copying one folder is a two-minute job for IT, and the note gives them what a
-software review usually asks for. IT can also deploy it to many PCs silently (as administrator or SYSTEM):
+If you can approve admin prompts, copy the `HL7Lens` folder into Notepad++'s `plugins` folder yourself. Otherwise
+attach `HOW-TO-INSTALL.txt` to an IT ticket; copying one folder is a two-minute job. IT can also deploy it to many
+PCs silently (as administrator or SYSTEM; no pop-ups in that case):
 `powershell -NoProfile -ExecutionPolicy Bypass -File install.ps1 -ZipPath <release zip>`.
 
 If your agency blocks PowerShell entirely, use **Manual** below and send IT the `x64\HL7Lens` folder from the zip.
@@ -86,14 +87,16 @@ irm https://raw.githubusercontent.com/Subzero121800/HL7Lens/main/install.ps1 | i
 
 The installer finds Notepad++, picks the 64-bit or 32-bit build to match it, downloads the latest
 release, checks its SHA-256 checksum and that the DLL is signed by the author, then copies it to
-`plugins\HL7Lens\`. It asks for administrator approval only when the plugins folder needs it.
+`plugins\HL7Lens\` when that folder is writable, or to `Downloads\HL7Lens-Plugin` with instructions when it is not.
 
 | Option | What it does |
 | --- | --- |
 | `-NppPath D:\Tools\npp` | Portable Notepad++ (the folder that holds `notepad++.exe`) |
 | `-Version 1.1.0` | A specific release instead of the latest |
 | `-ZipPath .\HL7Lens_NotepadPlusPlus_v1.1.0.zip` | Install from a zip you already downloaded |
-| `-Force` | Close a running Notepad++ first |
+| `-Admin` | Copy into a protected plugins folder (Windows asks for admin approval) |
+| `-Quiet` | No pop-ups, and do not open Notepad++ afterwards |
+| `-Force` | Close a running Notepad++ first, without asking |
 | `-Uninstall` | Remove the plugin (settings stay in `plugins\Config\HL7Lens`) |
 
 To pass options, download the script first: `irm https://raw.githubusercontent.com/Subzero121800/HL7Lens/main/install.ps1 -OutFile install.ps1`, then `.\install.ps1 -NppPath ...`.

@@ -3,8 +3,11 @@
 ## Unreleased
 
 ### Added
-- Installer: on PCs without admin rights (or when the Windows prompt is declined) it now saves the checked plugin
-  and a `README-for-IT.txt` request note to `Downloads\HL7Lens-for-IT` instead of stopping with an error.
+- Installer never asks for administrator rights unless `-Admin` is given. When the Notepad++ plugins folder is
+  protected (C:\Program Files on managed PCs), it saves the checked plugin and `HOW-TO-INSTALL.txt` (with the
+  details IT needs) to `Downloads\HL7Lens-Plugin` and opens them.
+- Installer shows a pop-up with the result, then opens Notepad++ with a getting-started guide and a sample message.
+  If Notepad++ is open it offers to close it. `-Quiet` turns this off; SYSTEM and scripted installs never pop up.
 - README: install from the Windows Run box (Win+R), and a section for managed State, Federal and hospital PCs.
 
 ### Fixed

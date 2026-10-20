@@ -5,16 +5,18 @@
 .DESCRIPTION
     Finds Notepad++, works out whether it is 64-bit or 32-bit, downloads the matching HL7Lens release,
     checks its SHA-256 checksum and Authenticode signature, and copies the plugin into
-    <Notepad++>\plugins\HL7Lens\. Asks for administrator rights only for the copy, and only when the
-    plugins folder needs it (for example under C:\Program Files). Without admin rights it saves the
-    checked plugin and a note for IT in Downloads\HL7Lens-for-IT instead.
+    <Notepad++>\plugins\HL7Lens\ when that folder is writable. It never asks for administrator rights
+    unless you pass -Admin: when the plugins folder is protected (for example under C:\Program Files),
+    it saves the checked plugin and install instructions to Downloads\HL7Lens-Plugin instead.
+    When it finishes it shows a pop-up and opens Notepad++ with a short getting-started guide
+    (skipped with -Quiet, and when it runs as SYSTEM or without a desktop).
 
 .EXAMPLE
     irm https://raw.githubusercontent.com/Subzero121800/HL7Lens/main/install.ps1 | iex
 
 .EXAMPLE
-    powershell -NoExit -c "irm https://raw.githubusercontent.com/Subzero121800/HL7Lens/main/install.ps1|iex"
-    (paste into the Windows Run box, Win+R)
+    powershell -c "irm https://raw.githubusercontent.com/Subzero121800/HL7Lens/main/install.ps1|iex"
+    (paste into the Windows Run box, Win+R; the window closes by itself and a pop-up shows the result)
 
 .EXAMPLE
     install.cmd                                            # from an unpacked release zip: installs the files beside it
@@ -23,6 +25,8 @@
     .\install.ps1 -NppPath D:\Tools\npp-portable          # portable Notepad++
     .\install.ps1 -Version 1.1.0                           # a specific release
     .\install.ps1 -ZipPath .\HL7Lens_NotepadPlusPlus_v1.1.0.zip   # offline, from a downloaded zip
+    .\install.ps1 -Admin                                   # copy into C:\Program Files\Notepad++ (Windows asks for admin approval)
+    .\install.ps1 -Quiet                                   # no pop-ups and do not start Notepad++ (scripted installs)
     .\install.ps1 -Uninstall
 
 .NOTES
@@ -35,6 +39,8 @@ param(
     [string]$ZipPath,
     [switch]$Download,
     [switch]$Uninstall,
+    [switch]$Admin,
+    [switch]$Quiet,
     [switch]$Force,
     [switch]$SkipSignatureCheck,
     [string]$Repo = 'Subzero121800/HL7Lens',
@@ -49,6 +55,69 @@ $OnWindows = ($PSVersionTable.PSEdition -eq 'Desktop') -or $IsWindows
 
 function Say([string]$Text, [string]$Color = 'Gray') { Write-Host $Text -ForegroundColor $Color }
 function Fail([string]$Text) { Write-Host ''; Write-Host "HL7Lens install stopped: $Text" -ForegroundColor Red; throw [System.OperationCanceledException]::new($Text) }
+
+$Interactive = $OnWindows -and -not $Quiet -and [Environment]::UserInteractive -and
+    ([Security.Principal.WindowsIdentity]::GetCurrent().User.Value -ne 'S-1-5-18')   # never pop up for SYSTEM / service installs
+
+function Show-Popup([string]$Text, [string]$Icon = 'Information', [string]$Buttons = 'OK') {
+    # Returns the button pressed ('OK', 'Cancel', ...); 'OK' when no pop-up can be shown.
+    if (-not $Interactive) { return 'OK' }
+    try {
+        Add-Type -AssemblyName System.Windows.Forms
+        $owner = New-Object System.Windows.Forms.Form -Property @{ TopMost = $true; ShowInTaskbar = $false }
+        try { return [string][System.Windows.Forms.MessageBox]::Show($owner, $Text, 'HL7Lens for Notepad++', $Buttons, $Icon) }
+        finally { $owner.Dispose() }
+    } catch { return 'OK' }
+}
+
+function Get-DownloadsFolder {
+    $d = try { (New-Object -ComObject Shell.Application).NameSpace('shell:Downloads').Self.Path } catch { $null }
+    if ($d) { $d } else { Join-Path ([Environment]::GetFolderPath('UserProfile')) 'Downloads' }
+}
+
+function Open-InNotepadPlusPlus([string]$Npp, [string]$File) {
+    if (-not $Interactive) { return }
+    try { Start-Process -FilePath (Join-Path $Npp 'notepad++.exe') -ArgumentList ('"' + $File + '"') } catch { try { Start-Process notepad.exe ('"' + $File + '"') } catch { } }
+}
+
+function Write-GettingStarted([string]$Path) {
+    @(
+        'HL7Lens for Notepad++ - getting started'
+        '======================================='
+        ''
+        'HL7Lens reads HL7 v2 messages in plain language. Everything runs on this PC; nothing is sent anywhere.'
+        ''
+        'TRY IT NOW'
+        '  1. Press Ctrl+Alt+H to open the HL7Lens panel (or Plugins > HL7Lens > HL7Lens panel).'
+        '  2. Click anywhere on the sample message at the bottom of this page.'
+        '     The panel shows where you are (for example PID-5.1), the field name, its data type and what the value means.'
+        ''
+        'HANDY KEYS'
+        '  Ctrl+Alt+H              show or hide the panel'
+        '  Ctrl+Alt+G              go to a field path, for example PID-3 or OBX[2]-5'
+        '  Ctrl+Alt+Right / Left   next / previous field'
+        '  Ctrl+Alt+PgDn / PgUp    next / previous message'
+        ''
+        'MORE IN THE MENU (Plugins > HL7Lens)'
+        '  Validation report             checks every message in the file'
+        '  Compare message at caret      with another message, the clipboard or the other view'
+        '  Build ACK                     makes an acknowledgment for the message at the caret'
+        '  De-identified copy            a copy with identifying fields replaced (best effort: review it before sharing)'
+        '  Repair message                fixes MLLP framing, blank and wrapped lines (Ctrl+Z undoes it)'
+        '  Define custom segments        teach it your Z-segments'
+        '  Install HL7 v2 syntax colors  then restart Notepad++ once; .hl7 files color automatically'
+        ''
+        'Questions or ideas: https://github.com/Subzero121800/HL7Lens/discussions'
+        'Please share only made-up messages, never real patient data.'
+        ''
+        'SAMPLE MESSAGE (all made up) - click a line, then press Ctrl+Alt+H'
+        ''
+        'MSH|^~\&|SENDING_APP|SENDING_FACILITY|RECEIVING_APP|RECEIVING_FACILITY|20261020095500||ADT^A01^ADT_A01|MSG00001|P|2.5.1'
+        'EVN|A01|20261020095500'
+        'PID|1||123456789^^^HOSPITAL_MRN||Doe^John^A^^Jr||19800101|M|||123 Main St^^Anytown^PA^15063^USA||(555)555-5555|||M|NON|987654321'
+        'PV1|1|I|Wards^3West^301^A||||1234^Smith^Jane^Dr|||||||||||IP|VIS123456^^^HOSPITAL_VISIT'
+    ) | Set-Content -Path $Path -Encoding UTF8
+}
 
 function Find-NotepadPlusPlus {
     if ($NppPath) {
@@ -150,48 +219,65 @@ function Invoke-Elevated([string]$Command) {
     return ($p.ExitCode -eq 0)
 }
 
-function Save-ForIT([string]$Src, [string]$Target, [string]$Arch) {
-    # No admin rights (typical on State and Federal PCs): leave the checked plugin folder and a note for IT.
-    $downloads = try { (New-Object -ComObject Shell.Application).NameSpace('shell:Downloads').Self.Path } catch { $null }
-    if (-not $downloads) { $downloads = Join-Path ([Environment]::GetFolderPath('UserProfile')) 'Downloads' }
-    $root = Join-Path $downloads 'HL7Lens-for-IT'
+function Save-ToDownloads([string]$Src, [string]$Target, [string]$Arch) {
+    # Protected plugins folder and no -Admin: leave the checked plugin and instructions in the user's Downloads.
+    $root = Join-Path (Get-DownloadsFolder) 'HL7Lens-Plugin'
     if (Test-Path $root) { Remove-Item $root -Recurse -Force }
     New-Item -ItemType Directory -Path $root | Out-Null
     Copy-Item $Src (Join-Path $root $PluginName) -Recurse -Force
     $dll = Join-Path (Join-Path $root $PluginName) "$PluginName.dll"
     $hash = (Get-FileHash $dll -Algorithm SHA256).Hash
     $ver = (Get-Item $dll).VersionInfo.ProductVersion
+    $plugins = Split-Path $Target -Parent
     @(
-        'HL7Lens plugin for Notepad++ - request for IT'
+        'HL7Lens plugin for Notepad++ - how to install'
         ''
-        'Please copy the HL7Lens folder that sits next to this note into the Notepad++ plugins folder:'
+        "Notepad++ on this PC keeps its plugins in a protected folder, so this copy was saved here instead:"
+        "    $root"
         ''
-        "    $(Split-Path $Target -Parent)"
+        'TO INSTALL'
+        '  1. Close Notepad++.'
+        '  2. Copy the HL7Lens folder that sits next to this file into:'
+        "         $plugins"
+        "     so that this file exists:  $(Join-Path $Target "$PluginName.dll")"
+        '     (Windows asks for administrator approval for that folder.)'
+        '  3. Start Notepad++ and press Ctrl+Alt+H.'
         ''
-        "The result should be $(Join-Path $Target "$PluginName.dll"). Restart Notepad++ afterwards."
+        'NO ADMIN RIGHTS? (most State, Federal and hospital PCs)'
+        '  Open an IT ticket, attach this file, and ask IT to do step 2. The details they usually need:'
         ''
-        "Version:      $ver ($Arch)"
-        "SHA-256:      $hash ($PluginName.dll)"
-        "Signed by:    CN=Joseph C McGinty Jr. (thumbprint $SignerThumbprint)"
-        "Source:       https://github.com/$Repo (GPL-3.0, free and open source)"
-        'Behavior:     runs offline inside Notepad++; makes no network connections, no telemetry, stores no message content.'
+        "  Version:    $ver ($Arch)"
+        "  SHA-256:    $hash ($PluginName.dll)"
+        "  Signed by:  CN=Joseph C McGinty Jr. (thumbprint $SignerThumbprint)"
+        "  Source:     https://github.com/$Repo (GPL-3.0, free and open source)"
+        '  Behavior:   runs offline inside Notepad++; makes no network connections, no telemetry, stores no message content.'
         '              (Its "Support development" menu item and About box only open a web page in the browser when clicked.)'
         ''
-        'Silent install for many PCs (run as administrator or SYSTEM, Notepad++ closed):'
-        "    powershell -NoProfile -ExecutionPolicy Bypass -File install.ps1 -ZipPath <path to HL7Lens_NotepadPlusPlus zip>"
-    ) | Set-Content -Path (Join-Path $root 'README-for-IT.txt') -Encoding UTF8
+        '  Silent install for many PCs (run as administrator or SYSTEM, Notepad++ closed):'
+        '      powershell -NoProfile -ExecutionPolicy Bypass -File install.ps1 -ZipPath <path to HL7Lens_NotepadPlusPlus zip>'
+    ) | Set-Content -Path (Join-Path $root 'HOW-TO-INSTALL.txt') -Encoding UTF8
     Say ''
-    Say 'No administrator rights on this PC, so HL7Lens could not be copied into Notepad++.' 'Yellow'
-    Say "The checked plugin and a note for IT are in: $root" 'Green'
-    Say 'Send that folder (or open a ticket with README-for-IT.txt) and ask IT to copy it into:'
-    Say "    $(Split-Path $Target -Parent)"
-    try { Start-Process explorer.exe $root } catch { }
+    Say "Notepad++'s plugins folder is protected on this PC, so nothing was changed there and no admin rights were needed." 'Yellow'
+    Say "HL7Lens and install instructions are saved in: $root" 'Green'
+    Say "Next: copy the HL7Lens folder into $plugins (or ask IT to). Details are in HOW-TO-INSTALL.txt."
+    if ($Interactive) {
+        try { Start-Process explorer.exe ('"' + $root + '"') } catch { }
+        [void](Show-Popup ("Notepad++ keeps its plugins in a protected folder on this PC, so HL7Lens was saved to your Downloads instead:`n`n    $root`n`n" +
+            "Copy the HL7Lens folder into:`n    $plugins`n`nNo admin rights? Send HOW-TO-INSTALL.txt to IT with your request. It opens next."))
+        Open-InNotepadPlusPlus (Split-Path $plugins -Parent) (Join-Path $root 'HOW-TO-INSTALL.txt')
+    }
 }
 
 function Stop-NotepadPlusPlusIfRunning([string]$Dir) {
-    $running = Get-Process -Name 'notepad++' -ErrorAction SilentlyContinue | Where-Object { try { $_.Path -and ((Split-Path $_.Path -Parent) -eq $Dir) } catch { $true } }
+    $find = { Get-Process -Name 'notepad++' -ErrorAction SilentlyContinue | Where-Object { try { $_.Path -and ((Split-Path $_.Path -Parent) -eq $Dir) } catch { $true } } }
+    $running = & $find
     if (-not $running) { return }
     if ($Force) { Say 'Closing Notepad++ (-Force) ...' 'Yellow'; $running | Stop-Process -Force; Start-Sleep -Milliseconds 800; return }
+    if ($Interactive -and (Show-Popup "Notepad++ is open and has to close for the install.`n`nClick OK to close it (it will ask about any unsaved work), or Cancel to stop." 'Warning' 'OKCancel') -eq 'OK') {
+        $running | ForEach-Object { [void]$_.CloseMainWindow() }
+        for ($i = 0; $i -lt 60 -and (& $find); $i++) { Start-Sleep -Milliseconds 500 }
+        if (-not (& $find)) { return }
+    }
     Fail 'Notepad++ is running. Close it (save your work first) and run this again, or add -Force to close it.'
 }
 
@@ -205,13 +291,14 @@ function Install-HL7Lens {
     Say "Notepad++: $npp ($arch)"
     if ($arch -eq 'arm64') { Fail 'This is ARM64 Notepad++. HL7Lens ships x64 and x86 builds only; install the x64 Notepad++ to use it.' }
     if ($arch -eq 'unknown') { Fail 'Could not tell whether notepad++.exe is 64-bit or 32-bit.' }
-    Stop-NotepadPlusPlusIfRunning $npp
+    if ($Admin -or (Test-Writable (Split-Path $target -Parent))) { Stop-NotepadPlusPlusIfRunning $npp }   # only when we will write there
 
     if ($Uninstall) {
         if (-not (Test-Path $target)) { Say 'HL7Lens is not installed in this Notepad++.' 'Yellow'; return }
         if (Test-Writable (Split-Path $target -Parent)) { Remove-Item $target -Recurse -Force }
-        elseif (-not (Invoke-Elevated "Remove-Item -LiteralPath $(Quote $target) -Recurse -Force")) { Fail "Removing HL7Lens needs administrator rights on this PC. Ask IT to delete the folder $target" }
+        elseif (-not $Admin -or -not (Invoke-Elevated "Remove-Item -LiteralPath $(Quote $target) -Recurse -Force")) { Fail "Removing HL7Lens needs administrator rights on this PC. Run again with -Admin, or ask IT to delete the folder $target" }
         Say "Removed $target. Your settings stay in plugins\Config\HL7Lens (delete that folder too for a clean removal)." 'Green'
+        [void](Show-Popup 'HL7Lens was removed from Notepad++.')
         return
     }
 
@@ -238,8 +325,11 @@ function Install-HL7Lens {
         if (Test-Writable $plugins) {
             if (Test-Path $target) { Remove-Item $target -Recurse -Force }
             Copy-Item $src $target -Recurse -Force
+        } elseif (-not $Admin) {
+            Save-ToDownloads $src $target $arch
+            return
         } elseif (-not (Invoke-Elevated "if (Test-Path -LiteralPath $(Quote $target)) { Remove-Item -LiteralPath $(Quote $target) -Recurse -Force }; Copy-Item -LiteralPath $(Quote $src) -Destination $(Quote $target) -Recurse -Force")) {
-            Save-ForIT $src $target $arch
+            Save-ToDownloads $src $target $arch
             return
         }
         if (-not (Test-Path (Join-Path $target "$PluginName.dll"))) { Fail 'The plugin was not copied.' }
@@ -248,10 +338,17 @@ function Install-HL7Lens {
         Say ''
         Say ("HL7Lens " + $(if ($ver) { "$ver " } else { '' }) + "installed to $target") 'Green'
         Say 'Start Notepad++, then Plugins > HL7Lens > HL7Lens panel (Ctrl+Alt+H).'
+        if ($Interactive) {
+            $guide = Join-Path (Get-DownloadsFolder) 'HL7Lens-Getting-Started.txt'
+            try { Write-GettingStarted $guide } catch { $guide = $null }
+            [void](Show-Popup ("HL7Lens " + $(if ($ver) { "$ver " } else { '' }) + "is installed.`n`nNotepad++ opens next with a short getting-started guide and a sample message. Press Ctrl+Alt+H there to open the HL7Lens panel."))
+            if ($guide) { Open-InNotepadPlusPlus $npp $guide }
+        }
     } finally {
         Remove-Item $work -Recurse -Force -ErrorAction SilentlyContinue
     }
 }
 
 try { Install-HL7Lens }
-catch [System.OperationCanceledException] { $global:LASTEXITCODE = 1 }   # message already shown; no stack trace, and never 'exit' (would close a shell running 'irm | iex')
+catch [System.OperationCanceledException] { $global:LASTEXITCODE = 1; [void](Show-Popup ("HL7Lens was not installed.`n`n" + $_.Exception.Message) 'Warning') }
+catch { [void](Show-Popup ("HL7Lens was not installed because of an unexpected error:`n`n" + $_.Exception.Message) 'Error'); throw }   # message already shown; no stack trace, and never 'exit' (would close a shell running 'irm | iex')
